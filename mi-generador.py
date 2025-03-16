@@ -51,9 +51,6 @@ if __name__ == "__main__":
     output_file = sys.argv[1]
     try:
         num_clients = int(sys.argv[2])
-        if num_clients <= 0:
-            print("El número de clientes debe ser positivo")
-            sys.exit(1)
     except ValueError as e:
         print(f"El número de clientes debe ser un entero")
         sys.exit(1)
