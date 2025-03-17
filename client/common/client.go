@@ -23,6 +23,7 @@ type ClientConfig struct {
 type Client struct {
 	config ClientConfig
 	conn   net.Conn
+	done   chan struct{}
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -30,6 +31,7 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
+		done: make(chan struct{}),
 	}
 	return client
 }
@@ -45,9 +47,28 @@ func (c *Client) createClientSocket() error {
 			c.config.ID,
 			err,
 		)
+		return err
 	}
 	c.conn = conn
 	return nil
+}
+
+// Shutdown Gracefully shutdown the client
+func (c *Client) Shutdown() {
+	log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v", c.config.ID)
+	close(c.done)
+	c.CloseConnection()
+	log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
+}
+
+// CloseConnection Closes the client connection
+func (c *Client) CloseConnection() {
+	log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
+	log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
@@ -55,8 +76,12 @@ func (c *Client) StartClientLoop() {
 	// There is an autoincremental msgID to identify every message sent
 	// Messages if the message amount threshold has not been surpassed
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+
 		// Create the connection the server in every loop iteration. Send an
-		c.createClientSocket()
+		if c.createClientSocket() != nil {
+			c.CloseConnection()
+			return
+		}
 
 		// TODO: Modify the send to avoid short-write
 		fmt.Fprintf(
@@ -82,7 +107,11 @@ func (c *Client) StartClientLoop() {
 		)
 
 		// Wait a time between sending one message and the next one
-		time.Sleep(c.config.LoopPeriod)
+		select {
+		case <-c.done:
+			return
+		case <-time.After(c.config.LoopPeriod):
+		}
 
 	}
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)

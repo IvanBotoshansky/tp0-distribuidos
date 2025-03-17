@@ -1,6 +1,7 @@
 import socket
 import logging
 
+SERVER_SOCKET_TIMEOUT = 1.0
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -8,6 +9,14 @@ class Server:
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self._running = True
+
+    def shutdown(self):
+        """Gracefully shutdown the server"""
+        logging.info("action: graceful_shutdown | result: in_progress")
+        self._running = False
+        self.__close_server_socket()
+        logging.info("action: graceful_shutdown | result: success")
 
     def run(self):
         """
@@ -18,11 +27,18 @@ class Server:
         finishes, servers starts to accept new connections again
         """
 
-        # TODO: Modify this program to handle signal to graceful shutdown
-        # the server
-        while True:
+        while self._running:
             client_sock = self.__accept_new_connection()
-            self.__handle_client_connection(client_sock)
+            if client_sock and self._running:
+                self.__handle_client_connection(client_sock)
+
+    def __close_server_socket(self):
+        """Closes the server socket"""
+        logging.info("action: close_connection | result: in_progress")
+        if self._server_socket:
+            self._server_socket.close()
+            self._server_socket = None
+        logging.info("action: close_connection | result: success")
 
     def __handle_client_connection(self, client_sock):
         """
@@ -53,6 +69,16 @@ class Server:
 
         # Connection arrived
         logging.info('action: accept_connections | result: in_progress')
-        c, addr = self._server_socket.accept()
-        logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
-        return c
+
+        try:
+            self._server_socket.settimeout(SERVER_SOCKET_TIMEOUT)
+            c, addr = self._server_socket.accept()
+            logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
+            return c
+        except socket.timeout:
+            return None
+        except OSError as e:
+            if self._running:
+                logging.error(f"action: accept_connections | result: fail | error: {e}")
+            return None
+        

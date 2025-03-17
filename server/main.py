@@ -4,6 +4,8 @@ from configparser import ConfigParser
 from common.server import Server
 import logging
 import os
+import signal
+import sys
 
 
 def initialize_config():
@@ -49,6 +51,14 @@ def main():
 
     # Initialize server and start server loop
     server = Server(port, listen_backlog)
+
+    def handle_sigterm(signum, frame):
+        logging.info("action: received_signal | result: success | signal: SIGTERM")
+        server.shutdown()
+        sys.exit(0)
+        
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
     server.run()
 
 def initialize_log(logging_level):
