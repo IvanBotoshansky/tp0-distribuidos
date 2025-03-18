@@ -114,15 +114,31 @@ func main() {
 
 	client := common.NewClient(clientConfig)
 
+	shutdownInProgress := make(chan struct{})
+	shutdownCompleted := make(chan struct{})
+	loopCompleted := make(chan struct{})
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGTERM)
 
 	go func() {
 		<-sigc
+		close(shutdownInProgress)
 		log.Infof("action: received_signal | result: success | signal: SIGTERM")
 		client.Shutdown()
-		os.Exit(0)
+		close(shutdownCompleted)
 	}()
 
-	client.StartClientLoop()
+	go func() {
+		client.StartClientLoop()
+		close(loopCompleted)
+	}()
+
+	select {
+    case <-loopCompleted:
+		select {
+			case <-shutdownInProgress:
+				<-shutdownCompleted
+			default:
+		}
+    }
 }

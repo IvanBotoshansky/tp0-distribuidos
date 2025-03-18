@@ -55,7 +55,6 @@ def main():
     def handle_sigterm(signum, frame):
         logging.info("action: received_signal | result: success | signal: SIGTERM")
         server.shutdown()
-        sys.exit(0)
         
     signal.signal(signal.SIGTERM, handle_sigterm)
 
