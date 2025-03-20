@@ -3,8 +3,10 @@ package communication
 import (
     "bytes"
     "encoding/binary"
-    "fmt"
+    "strings"
 )
+
+const BetFieldsSeparator = ","
 
 // SerializeData serializes data
 func SerializeData(data string) ([]byte, error) {
@@ -25,7 +27,14 @@ func SerializeData(data string) ([]byte, error) {
 
 // SerializeBet serializes a bet message
 func SerializeBet(bet BetMessage) ([]byte, error) {
-    data := fmt.Sprintf("%s,%s,%s,%s,%s", bet.FirstName, bet.LastName, bet.Document, bet.Birthdate, bet.Number)
+    data := strings.Join([]string{
+        bet.Agency, 
+        bet.FirstName, 
+        bet.LastName, 
+        bet.Document, 
+        bet.Birthdate, 
+        bet.Number,
+    }, BetFieldsSeparator)
     return SerializeData(data)
 }
 

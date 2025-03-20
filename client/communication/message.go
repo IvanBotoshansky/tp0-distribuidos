@@ -10,6 +10,7 @@ const LengthHeaderSize = 4
 
 // BetMessage represents the message sent by the client
 type BetMessage struct {
+    Agency    string
     FirstName string
     LastName  string
     Document  string
@@ -23,8 +24,9 @@ type ConfirmationMessage struct {
 }
 
 // NewBetMessage creates a new BetMessage instance
-func NewBetMessage(firstName, lastName, document, birthdate, number string) BetMessage {
+func NewBetMessage(agency, firstName, lastName, document, birthdate, number string) BetMessage {
     return BetMessage{
+        Agency:    agency,
         FirstName: firstName,
         LastName:  lastName,
         Document:  document,
