@@ -1,6 +1,10 @@
 import socket
 import logging
 
+from communication.message import read_message_payload, ConfirmationMessage, send_message
+from communication.serialization import deserialize_bets, serialize_confirmation
+from common.utils import store_bets
+
 SERVER_SOCKET_TIMEOUT = 1.0
 
 class Server:
@@ -48,14 +52,21 @@ class Server:
         client socket will also be closed
         """
         try:
-            # TODO: Modify the receive to avoid short-reads
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
+            serialized_payload = read_message_payload(client_sock)
             addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            # TODO: Modify the send to avoid short-writes
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            logging.info(f'action: receive_message | result: success | ip: {addr[0]}')
+
+            bets = deserialize_bets(serialized_payload)
+            store_bets(bets)
+            for bet in bets:
+                logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
+            confirmation_msg = ConfirmationMessage("success")
+            serialized_confirmation_msg = serialize_confirmation(confirmation_msg)
+            send_message(client_sock, serialized_confirmation_msg)
         except OSError as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: receive_message | result: fail | error: {e}")
+        except Exception as e:
+            logging.error(f"action: unexpected_error | result: fail | error: {e}")
         finally:
             client_sock.close()
 

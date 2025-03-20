@@ -1,13 +1,15 @@
 package common
 
 import (
-	"bufio"
-	"fmt"
 	"net"
 	"time"
 
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/communication"
+
 	"github.com/op/go-logging"
 )
+
+const ReadTimeout = 1 * time.Second
 
 var log = logging.MustGetLogger("log")
 
@@ -76,48 +78,88 @@ func (c *Client) CloseConnection() {
 	log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
 }
 
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+// ReadPayloadWithTimeout Reads message payload with a timeout
+func (c *Client) ReadPayloadWithTimeout() ([]byte, error) {
+    if c.conn != nil {
+        _ = c.conn.SetReadDeadline(time.Now().Add(ReadTimeout))
+    }
+    return communication.ReadMessagePayload(c.conn)
+}
 
-		// Create the connection the server in every loop iteration. Send an
-		if c.createClientSocket() != nil {
-			c.CloseConnection()
-			return
-		}
+// IsTimeoutError Checks if the error is a timeout error
+func IsTimeoutError(err error) bool {
+    netErr, ok := err.(net.Error)
+    return ok && netErr.Timeout()
+}
 
-		// TODO: Modify the send to avoid short-write
-		fmt.Fprintf(
-			c.conn,
-			"[CLIENT %v] Message N°%v\n",
-			c.config.ID,
-			msgID,
-		)
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
-
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			return
-		}
-
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			msg,
-		)
-
-		// Wait a time between sending one message and the next one
+// ReceiveConfirmation Receives the confirmation message
+func (c *Client) ReceiveConfirmation(confirmationc chan communication.ConfirmationMessage, errorc chan error) {
+	for {
+		serializedPayload, err := c.ReadPayloadWithTimeout()
 		select {
 		case <-c.done:
 			return
-		case <-time.After(c.config.LoopPeriod):
+		default:
 		}
 
+		if err != nil {
+			if IsTimeoutError(err) {
+				continue
+			}
+			errorc <- err
+			return
+		}
+		
+		confirmationMessage := communication.DeserializeConfirmation(serializedPayload)
+		confirmationc <- confirmationMessage
+		return
 	}
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+}
+
+// HandleConfirmation Handles the confirmation message
+func (c *Client) HandleConfirmation(confirmationMessage communication.ConfirmationMessage) {
+	if confirmationMessage.Status == "success" {
+		log.Infof("action: apuesta_enviada | result: success | dni: %s | numero: %s", c.config.Document, c.config.Number)
+	} else {
+		log.Infof("action: apuesta_enviada | result: fail | dni: %s | numero: %s", c.config.Document, c.config.Number)
+	}
+}
+
+// StartClientLoop Runs the client
+func (c *Client) StartClientLoop() {
+	if c.createClientSocket() != nil {
+		c.CloseConnection()
+		return
+	}
+
+	betMessage := communication.NewBetMessage(c.config.ID, c.config.FirstName, c.config.LastName, c.config.Document, c.config.Birthdate, c.config.Number)
+	serializedBet, err := communication.SerializeBet(betMessage)
+	if err != nil {
+		log.Errorf("action: serialize_bet | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		c.CloseConnection()
+		return
+	}
+	if err := communication.SendMessage(c.conn, serializedBet); err != nil {
+		log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		c.CloseConnection()
+		return
+	}
+	
+	confirmationc := make(chan communication.ConfirmationMessage)
+	errorc := make(chan error)
+
+	go c.ReceiveConfirmation(confirmationc, errorc)
+
+	select {
+    case confirmationMessage := <-confirmationc:
+		c.HandleConfirmation(confirmationMessage)
+		c.CloseConnection()
+	case err := <-errorc:
+        log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+            c.config.ID, err)
+		c.CloseConnection()
+	case <-c.done:
+	}
 }
