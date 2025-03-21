@@ -33,6 +33,7 @@ services:
       - CLI_NUMERO={7574 + i}
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-{i}.csv:/.data/agency-{i}.csv
     networks:
       - testing_net
     depends_on:
