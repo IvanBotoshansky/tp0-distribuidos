@@ -26,11 +26,6 @@ services:
     entrypoint: /client
     environment:
       - CLI_ID={i}
-      - CLI_NOMBRE=Cliente{i}
-      - CLI_APELLIDO=Apellido{i}
-      - CLI_DOCUMENTO={30904465 + i}
-      - CLI_NACIMIENTO=1999-03-17
-      - CLI_NUMERO={7574 + i}
     volumes:
       - ./client/config.yaml:/config.yaml
       - ./.data/agency-{i}.csv:/.data/agency-{i}.csv

@@ -6,6 +6,16 @@ from communication.serialization import deserialize_bets, serialize_confirmation
 from common.utils import store_bets
 
 SERVER_SOCKET_TIMEOUT = 1.0
+MAX_NAME_LENGTH = 50
+
+def are_valid_bets(bets):
+    """Verify if the bets are valid"""
+    for bet in bets:
+        if bet.agency < 0 or bet.number < 0:
+            return False
+        if len(bet.first_name) > MAX_NAME_LENGTH or len(bet.last_name) > MAX_NAME_LENGTH:
+            return False
+    return True
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -57,10 +67,13 @@ class Server:
             logging.info(f'action: receive_message | result: success | ip: {addr[0]}')
 
             bets = deserialize_bets(serialized_payload)
-            store_bets(bets)
-            for bet in bets:
-                logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
-            confirmation_msg = ConfirmationMessage("success")
+            if are_valid_bets(bets):
+                store_bets(bets)
+                logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bets)}")
+                confirmation_msg = ConfirmationMessage("success")
+            else:
+                logging.error(f"action: apuesta_recibida | result: fail | cantidad: {len(bets)}")
+                confirmation_msg = ConfirmationMessage("fail")
             serialized_confirmation_msg = serialize_confirmation(confirmation_msg)
             send_message(client_sock, serialized_confirmation_msg)
         except OSError as e:

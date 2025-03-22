@@ -1,8 +1,12 @@
 package common
 
 import (
+	"fmt"
+	"bufio"
+	"os"
 	"net"
 	"time"
+	"strings"
 
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/communication"
 
@@ -19,11 +23,7 @@ type ClientConfig struct {
 	ServerAddress string
 	LoopAmount    int
 	LoopPeriod    time.Duration
-	FirstName     string
-	LastName      string
-	Document      string
-	Birthdate     string
-	Number        string
+	BatchMaxAmount int
 }
 
 // Client Entity that encapsulates how
@@ -70,96 +70,134 @@ func (c *Client) Shutdown() {
 
 // CloseConnection Closes the client connection
 func (c *Client) CloseConnection() {
-	log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
 	if c.conn != nil {
+		log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
 		c.conn.Close()
 		c.conn = nil
+		log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
 	}
-	log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
-}
-
-// ReadPayloadWithTimeout Reads message payload with a timeout
-func (c *Client) ReadPayloadWithTimeout() ([]byte, error) {
-    if c.conn != nil {
-        _ = c.conn.SetReadDeadline(time.Now().Add(ReadTimeout))
-    }
-    return communication.ReadMessagePayload(c.conn)
-}
-
-// IsTimeoutError Checks if the error is a timeout error
-func IsTimeoutError(err error) bool {
-    netErr, ok := err.(net.Error)
-    return ok && netErr.Timeout()
 }
 
 // ReceiveConfirmation Receives the confirmation message
-func (c *Client) ReceiveConfirmation(confirmationc chan communication.ConfirmationMessage, errorc chan error) {
-	for {
-		serializedPayload, err := c.ReadPayloadWithTimeout()
-		select {
-		case <-c.done:
-			return
-		default:
-		}
-
-		if err != nil {
-			if IsTimeoutError(err) {
-				continue
-			}
-			errorc <- err
-			return
-		}
-		
-		confirmationMessage := communication.DeserializeConfirmation(serializedPayload)
-		confirmationc <- confirmationMessage
-		return
+func (c *Client) ReceiveConfirmation() (communication.ConfirmationMessage, error) {
+	serializedPayload, err := communication.ReadMessagePayload(c.conn)
+	if err != nil {
+		return communication.ConfirmationMessage{}, err
 	}
+	
+	return communication.DeserializeConfirmation(serializedPayload), nil
 }
 
 // HandleConfirmation Handles the confirmation message
 func (c *Client) HandleConfirmation(confirmationMessage communication.ConfirmationMessage) {
 	if confirmationMessage.Status == "success" {
-		log.Infof("action: apuesta_enviada | result: success | dni: %s | numero: %s", c.config.Document, c.config.Number)
+		log.Infof("action: batch_apuestas_enviado | result: success")
 	} else {
-		log.Infof("action: apuesta_enviada | result: fail | dni: %s | numero: %s", c.config.Document, c.config.Number)
+		log.Infof("action: batch_apuestas_enviado | result: fail")
 	}
+}
+
+// ReadBetsInBatches Reads bets from CSV file in batches
+func (c *Client) ReadBetsInBatches() ([][]communication.BetMessage, error) {
+    filePath := fmt.Sprintf("/.data/agency-%s.csv", c.config.ID)
+    file, err := os.Open(filePath)
+    if err != nil {
+        return nil, fmt.Errorf("error al abrir archivo CSV: %v", err)
+    }
+    defer file.Close()
+    
+    var batches [][]communication.BetMessage
+    currentBatch := []communication.BetMessage{}
+    
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        line := scanner.Text()
+        fields := strings.Split(line, ",")
+        
+        if len(fields) != 5 {
+            return nil, fmt.Errorf("la apuesta debe tener 5 campos")
+        }
+
+        bet, err := communication.NewBetMessage(
+			c.config.ID,
+			fields[0],
+			fields[1],
+			fields[2],
+			fields[3],
+			fields[4],
+		)
+		if err != nil {
+			return nil, err
+		}
+        
+        if len(currentBatch) == c.config.BatchMaxAmount {
+            batches = append(batches, currentBatch)
+            currentBatch = []communication.BetMessage{}
+        }
+        currentBatch = append(currentBatch, bet)
+    }
+    
+    if err := scanner.Err(); err != nil {
+        return nil, fmt.Errorf("error al leer archivo: %v", err)
+    }
+    
+    if len(currentBatch) > 0 {
+        batches = append(batches, currentBatch)
+    }
+    
+    return batches, nil
 }
 
 // StartClientLoop Runs the client
 func (c *Client) StartClientLoop() {
-	if c.createClientSocket() != nil {
-		c.CloseConnection()
-		return
-	}
-
-	betMessage := communication.NewBetMessage(c.config.ID, c.config.FirstName, c.config.LastName, c.config.Document, c.config.Birthdate, c.config.Number)
-	serializedBet, err := communication.SerializeBet(betMessage)
+	batches, err := c.ReadBetsInBatches()
 	if err != nil {
-		log.Errorf("action: serialize_bet | result: fail | client_id: %v | error: %v",
+		log.Errorf("action: read_bets | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-		c.CloseConnection()
 		return
 	}
-	if err := communication.SendMessage(c.conn, serializedBet); err != nil {
-		log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
-		c.CloseConnection()
-		return
-	}
-	
-	confirmationc := make(chan communication.ConfirmationMessage)
-	errorc := make(chan error)
 
-	go c.ReceiveConfirmation(confirmationc, errorc)
+	amountBatches := len(batches)
 
-	select {
-    case confirmationMessage := <-confirmationc:
+	for i, batch := range batches {
+		if c.createClientSocket() != nil {
+			c.CloseConnection()
+			return
+		}
+
+		serializedBatch, err := communication.SerializeBatch(batch)
+		if err != nil {
+			log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			c.CloseConnection()
+			return
+		}
+		if err := communication.SendMessage(c.conn, serializedBatch); err != nil {
+			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			c.CloseConnection()
+			return
+		}
+
+		confirmationMessage, err := c.ReceiveConfirmation()
+		if err != nil {
+			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			c.CloseConnection()
+			return
+		}
+
 		c.HandleConfirmation(confirmationMessage)
-		c.CloseConnection()
-	case err := <-errorc:
-        log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-            c.config.ID, err)
-		c.CloseConnection()
-	case <-c.done:
+		c.conn.Close()
+
+		if i == amountBatches - 1 {
+			break
+		}
+		
+		select {
+		case <-c.done:
+			return
+		case <-time.After(c.config.LoopPeriod):
+		}
 	}
 }

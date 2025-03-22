@@ -7,6 +7,7 @@ import (
 )
 
 const BetFieldsSeparator = ","
+const BetsSeparator = ";"
 
 // SerializeData serializes data
 func SerializeData(data string) ([]byte, error) {
@@ -25,16 +26,20 @@ func SerializeData(data string) ([]byte, error) {
     return buf.Bytes(), nil
 }
 
-// SerializeBet serializes a bet message
-func SerializeBet(bet BetMessage) ([]byte, error) {
-    data := strings.Join([]string{
-        bet.Agency, 
-        bet.FirstName, 
-        bet.LastName, 
-        bet.Document, 
-        bet.Birthdate, 
-        bet.Number,
-    }, BetFieldsSeparator)
+// SerializeBatch serializes a batch of BetMessage
+func SerializeBatch(batch []BetMessage) ([]byte, error) {
+    betStrings := make([]string, len(batch))
+    for i, bet := range batch {
+        betStrings[i] = strings.Join([]string{
+            bet.Agency, 
+            bet.FirstName, 
+            bet.LastName, 
+            bet.Document, 
+            bet.Birthdate, 
+            bet.Number,
+        }, BetFieldsSeparator)
+    }
+    data := strings.Join(betStrings, BetsSeparator)
     return SerializeData(data)
 }
 

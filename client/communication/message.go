@@ -4,9 +4,11 @@ import (
     "net"
     "bytes"
     "encoding/binary"
+    "fmt"
 )
 
 const LengthHeaderSize = 4
+const MaxNameLength = 50
 
 // BetMessage represents the message sent by the client
 type BetMessage struct {
@@ -24,7 +26,10 @@ type ConfirmationMessage struct {
 }
 
 // NewBetMessage creates a new BetMessage instance
-func NewBetMessage(agency, firstName, lastName, document, birthdate, number string) BetMessage {
+func NewBetMessage(agency, firstName, lastName, document, birthdate, number string) (BetMessage, error) {
+    if len(firstName) > MaxNameLength || len(lastName) > MaxNameLength {
+        return BetMessage{}, fmt.Errorf("nombre y apellido no pueden tener más de %d caracteres", MaxNameLength)
+    }
     return BetMessage{
         Agency:    agency,
         FirstName: firstName,
@@ -32,7 +37,7 @@ func NewBetMessage(agency, firstName, lastName, document, birthdate, number stri
         Document:  document,
         Birthdate: birthdate,
         Number:    number,
-    }
+    }, nil
 }
 
 // NewConfirmationMessage creates a new ConfirmationMessage instance
