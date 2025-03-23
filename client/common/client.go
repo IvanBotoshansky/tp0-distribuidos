@@ -148,6 +148,31 @@ func (c *Client) ReadBetsInBatches() ([][]communication.BetMessage, error) {
     return batches, nil
 }
 
+// SendBatch serializes and sends a batch of bets
+func (c *Client) SendBatch(batch []communication.BetMessage) error {
+    serializedBatch, err := communication.SerializeBatch(batch)
+	if err != nil {
+		return err
+	}
+	if err := communication.SendMessage(c.conn, serializedBatch); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SendEndNotification serializes and sends an end notification message
+func (c *Client) SendEndNotification() error {
+	endNotification := communication.NewEndNotificationMessage(c.config.ID)
+	serializedEndNotification, err := communication.SerializeEndNotification(endNotification)
+	if err != nil {
+		return err
+	}
+	if err := communication.SendMessage(c.conn, serializedEndNotification); err != nil {
+		return err
+	}
+	return nil
+}
+
 // StartClientLoop Runs the client
 func (c *Client) StartClientLoop() {
 	batches, err := c.ReadBetsInBatches()
@@ -165,16 +190,9 @@ func (c *Client) StartClientLoop() {
 			return
 		}
 
-		serializedBatch, err := communication.SerializeBatch(batch)
-		if err != nil {
-			log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v",
-				c.config.ID, err)
-			c.CloseConnection()
-			return
-		}
-		if err := communication.SendMessage(c.conn, serializedBatch); err != nil {
-			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
-				c.config.ID, err)
+		if err := c.SendBatch(batch); err != nil {
+			log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
 			c.CloseConnection()
 			return
 		}
@@ -200,4 +218,18 @@ func (c *Client) StartClientLoop() {
 		case <-time.After(c.config.LoopPeriod):
 		}
 	}
+
+	if c.createClientSocket() != nil {
+		c.CloseConnection()
+		return
+	}
+
+	if err := c.SendEndNotification(); err != nil {
+		log.Errorf("action: send_end_notification | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		c.CloseConnection()
+		return
+	}
+
+	c.CloseConnection()
 }

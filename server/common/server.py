@@ -2,11 +2,18 @@ import socket
 import logging
 
 from communication.message import read_message_with_type, ConfirmationMessage, send_message
-from communication.serialization import deserialize_bets, serialize_confirmation, MESSAGE_TYPE_BET_BATCH
+from communication.serialization import (
+    deserialize_bets,
+    deserialize_end_notification,
+    serialize_confirmation,
+    MESSAGE_TYPE_BET_BATCH,
+    MESSAGE_TYPE_END_NOTIFICATION
+)
 from common.utils import store_bets
 
 SERVER_SOCKET_TIMEOUT = 1.0
 MAX_NAME_LENGTH = 50
+N_AGENCIES = 5
 
 def are_valid_bets(bets):
     """Verify if the bets are valid"""
@@ -24,6 +31,7 @@ class Server:
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
         self._running = True
+        self._agencies_ended = set()
 
     def shutdown(self):
         """Gracefully shutdown the server"""
@@ -55,6 +63,7 @@ class Server:
         logging.info("action: close_connection | result: success")
 
     def __handle_bet_batch(self, client_sock, serialized_payload):
+        """Handles a batch of bets"""
         bets = deserialize_bets(serialized_payload)
         if are_valid_bets(bets):
             store_bets(bets)
@@ -65,6 +74,14 @@ class Server:
             confirmation_msg = ConfirmationMessage("fail")
         serialized_confirmation_msg = serialize_confirmation(confirmation_msg)
         send_message(client_sock, serialized_confirmation_msg)
+
+    def __handle_end_notification(self, _client_sock, serialized_payload):
+        """Handles an end notification"""
+        agency = deserialize_end_notification(serialized_payload)
+        self._agencies_ended.add(agency)
+
+        if len(self._agencies_ended) == N_AGENCIES:
+            logging.info("action: sorteo | result: success")
 
     def __handle_client_connection(self, client_sock):
         """
@@ -80,7 +97,9 @@ class Server:
 
             if message_type == MESSAGE_TYPE_BET_BATCH:
                 self.__handle_bet_batch(client_sock, serialized_payload)
-                
+            elif message_type == MESSAGE_TYPE_END_NOTIFICATION:
+                self.__handle_end_notification(client_sock, serialized_payload)
+
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
         except Exception as e:

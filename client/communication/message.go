@@ -25,6 +25,11 @@ type ConfirmationMessage struct {
     Status string
 }
 
+// EndNotificationMessage represents the message sent by the client to notify the end of the bets sending
+type EndNotificationMessage struct{
+    Agency string
+}
+
 // NewBetMessage creates a new BetMessage instance
 func NewBetMessage(agency, firstName, lastName, document, birthdate, number string) (BetMessage, error) {
     if len(firstName) > MaxNameLength || len(lastName) > MaxNameLength {
@@ -44,6 +49,13 @@ func NewBetMessage(agency, firstName, lastName, document, birthdate, number stri
 func NewConfirmationMessage(status string) ConfirmationMessage {
     return ConfirmationMessage{
         Status: status,
+    }
+}
+
+// NewEndNotificationMessage creates a new EndNotificationMessage instance
+func NewEndNotificationMessage(agency string) EndNotificationMessage {
+    return EndNotificationMessage{
+        Agency: agency,
     }
 }
 

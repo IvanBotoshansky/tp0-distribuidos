@@ -11,7 +11,10 @@ const (
     BetsSeparator = ";"
 )
 
-const MessageTypeBetBatch        byte = 1
+const (
+    MessageTypeBetBatch        byte = 1
+    MessageTypeEndNotification byte = 2
+)
 
 // SerializeWithType serializes data with a message type
 func SerializeWithType(messageType uint8, data string) ([]byte, error) {
@@ -47,6 +50,11 @@ func SerializeBatch(batch []BetMessage) ([]byte, error) {
     }
     data := strings.Join(betStrings, BetsSeparator)
     return SerializeWithType(MessageTypeBetBatch, data)
+}
+
+// SerializeEndNotification serializes an end notification message
+func SerializeEndNotification(endNotification EndNotificationMessage) ([]byte, error) {
+    return SerializeWithType(MessageTypeEndNotification, endNotification.Agency)
 }
 
 // DeserializeConfirmation deserializes data bytes of a confirmation message
