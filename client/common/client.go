@@ -65,22 +65,30 @@ func (c *Client) createClientSocket() error {
 func (c *Client) Shutdown() {
 	log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v", c.config.ID)
 	close(c.done)
-	c.CloseConnection()
+	c.closeConnection()
 	log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
 }
 
-// CloseConnection Closes the client connection
-func (c *Client) CloseConnection() {
+// closeConnection Closes the client connection
+func (c *Client) closeConnection(verbose ...bool) {
+	isVerbose := true
+	if len(verbose) > 0 {
+		isVerbose = verbose[0]
+	}
 	if c.conn != nil {
-		log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
+		if isVerbose {
+			log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
+		}
 		c.conn.Close()
 		c.conn = nil
-		log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
+		if isVerbose {
+			log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
+		}
 	}
 }
 
-// ReceiveConfirmation Receives the confirmation message
-func (c *Client) ReceiveConfirmation() (communication.ConfirmationMessage, error) {
+// receiveConfirmation Receives the confirmation message
+func (c *Client) receiveConfirmation() (communication.ConfirmationMessage, error) {
 	messageType, serializedPayload, err := communication.ReceiveMessage(c.conn)
 	if err != nil {
 		return communication.ConfirmationMessage{}, err
@@ -91,8 +99,8 @@ func (c *Client) ReceiveConfirmation() (communication.ConfirmationMessage, error
 	return communication.DeserializeConfirmation(serializedPayload), nil
 }
 
-// HandleConfirmation Handles the confirmation message
-func (c *Client) HandleConfirmation(confirmationMessage communication.ConfirmationMessage) {
+// handleConfirmation Handles the confirmation message
+func (c *Client) handleConfirmation(confirmationMessage communication.ConfirmationMessage) {
 	if confirmationMessage.Status == "success" {
 		log.Infof("action: batch_apuestas_enviado | result: success")
 	} else {
@@ -100,8 +108,8 @@ func (c *Client) HandleConfirmation(confirmationMessage communication.Confirmati
 	}
 }
 
-// ReadBetsInBatches Reads bets from CSV file in batches
-func (c *Client) ReadBetsInBatches() ([][]communication.BetMessage, error) {
+// readBetsInBatches Reads bets from CSV file in batches
+func (c *Client) readBetsInBatches() ([][]communication.BetMessage, error) {
     filePath := fmt.Sprintf("/.data/agency-%s.csv", c.config.ID)
     file, err := os.Open(filePath)
     if err != nil {
@@ -151,8 +159,8 @@ func (c *Client) ReadBetsInBatches() ([][]communication.BetMessage, error) {
     return batches, nil
 }
 
-// SendBatch serializes and sends a batch of bets
-func (c *Client) SendBatch(batch []communication.BetMessage) error {
+// sendBatch serializes and sends a batch of bets
+func (c *Client) sendBatch(batch []communication.BetMessage) error {
     serializedBatch, err := communication.SerializeBatch(batch)
 	if err != nil {
 		return err
@@ -163,8 +171,8 @@ func (c *Client) SendBatch(batch []communication.BetMessage) error {
 	return nil
 }
 
-// SendEndNotification serializes and sends an end notification message
-func (c *Client) SendEndNotification() error {
+// sendEndNotification serializes and sends an end notification message
+func (c *Client) sendEndNotification() error {
 	endNotification := communication.NewEndNotificationMessage(c.config.ID)
 	serializedEndNotification, err := communication.SerializeEndNotification(endNotification)
 	if err != nil {
@@ -176,8 +184,8 @@ func (c *Client) SendEndNotification() error {
 	return nil
 }
 
-// SendWinnersRequest serializes and sends a winners request message
-func (c *Client) SendWinnersRequest() error {
+// sendWinnersRequest serializes and sends a winners request message
+func (c *Client) sendWinnersRequest() error {
 	winnersRequest := communication.NewWinnersRequestMessage(c.config.ID)
 	serializedWinnersRequest, err := communication.SerializeWinnersRequest(winnersRequest)
 	if err != nil {
@@ -189,40 +197,30 @@ func (c *Client) SendWinnersRequest() error {
 	return nil
 }
 
-// StartClientLoop Runs the client
-func (c *Client) StartClientLoop() {
-	batches, err := c.ReadBetsInBatches()
-	if err != nil {
-		log.Errorf("action: read_bets | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
-		return
-	}
-
+// sendAllBatches Sends all batches of bets
+func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
 	amountBatches := len(batches)
 
 	for i, batch := range batches {
 		if c.createClientSocket() != nil {
-			c.CloseConnection()
-			return
+			return false
 		}
 
-		if err := c.SendBatch(batch); err != nil {
+		if err := c.sendBatch(batch); err != nil {
 			log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-			c.CloseConnection()
-			return
+			return false
 		}
 
-		confirmationMessage, err := c.ReceiveConfirmation()
+		confirmationMessage, err := c.receiveConfirmation()
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
 				c.config.ID, err)
-			c.CloseConnection()
-			return
+			return false
 		}
 
-		c.HandleConfirmation(confirmationMessage)
-		c.conn.Close()
+		c.handleConfirmation(confirmationMessage)
+		c.closeConnection(false)
 
 		if i == amountBatches - 1 {
 			break
@@ -230,42 +228,45 @@ func (c *Client) StartClientLoop() {
 		
 		select {
 		case <-c.done:
-			return
+			return false
 		case <-time.After(c.config.LoopPeriod):
 		}
 	}
+	return true
+}
 
+// notifyEndOfBets Notifies the end of bets sending
+func (c *Client) notifyEndOfBets() bool {
 	if c.createClientSocket() != nil {
-		c.CloseConnection()
-		return
+		return false
 	}
 
-	if err := c.SendEndNotification(); err != nil {
+	if err := c.sendEndNotification(); err != nil {
 		log.Errorf("action: send_end_notification | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-		c.CloseConnection()
-		return
+		return false
 	}
-	c.conn.Close()
+	c.closeConnection(false)
+	return true
+}
 
+// askForWinners Asks for winners
+func (c *Client) askForWinners() bool {
 	for {
 		if c.createClientSocket() != nil {
-			c.CloseConnection()
-			return
+			return false
 		}
-		if err := c.SendWinnersRequest(); err != nil {
+		if err := c.sendWinnersRequest(); err != nil {
 			log.Errorf("action: send_winners_request | result: fail | client_id: %v | error: %v",
 				c.config.ID, err)
-			c.CloseConnection()
-			return
+			return false
 		}
 
 		messageType, serializedPayload, err := communication.ReceiveMessage(c.conn)
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
 				c.config.ID, err)
-			c.CloseConnection()
-			return
+			return false
 		}
 		if messageType == communication.MessageTypeWinnersList {
 			winnersList := communication.DeserializeWinnersList(serializedPayload)
@@ -273,13 +274,39 @@ func (c *Client) StartClientLoop() {
 			break
 		}
 
-		c.conn.Close()
+		c.closeConnection(false)
 		select {
 		case <-c.done:
-			return
+			return false
 		case <-time.After(RetryRequestTime):
 		}
 	}
 
-	c.CloseConnection()
+	c.closeConnection()
+	return true
+}
+
+// StartClientLoop Runs the client
+func (c *Client) StartClientLoop() {
+	batches, err := c.readBetsInBatches()
+	if err != nil {
+		log.Errorf("action: read_bets | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return
+	}
+
+	if !c.sendAllBatches(batches) {
+		c.closeConnection()
+		return
+	}
+
+	if !c.notifyEndOfBets() {
+		c.closeConnection()
+		return
+	}
+
+	if !c.askForWinners() {
+		c.closeConnection()
+		return
+	}
 }

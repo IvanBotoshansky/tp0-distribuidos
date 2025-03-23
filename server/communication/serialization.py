@@ -28,7 +28,6 @@ def serialize_winners_list(winners):
     """Serializes the winners list"""
     return serialize_with_type(MessageType.WINNERS_LIST, Separator.WINNERS.join(winners))
 
-
 def deserialize_bets(data):
     """Deserializes the data into a list of bets"""
     bets = []
