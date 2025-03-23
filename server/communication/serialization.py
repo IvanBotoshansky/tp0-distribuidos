@@ -1,5 +1,9 @@
 from common.utils import Bet
 
+BET_FIELDS_SEPARATOR = ","
+BETS_SEPARATOR = ";"
+MESSAGE_TYPE_BET_BATCH = 1
+
 def serialize_data(data):
     """Serializes the data"""
     data_bytes = data.encode('utf-8')
@@ -12,9 +16,9 @@ def deserialize_bets(data: bytes) -> list[Bet]:
     """Deserializes the data into a list of bets"""
     bets = []
     data = data.decode('utf-8')
-    bets_data = data.split(';')
+    bets_data = data.split(BETS_SEPARATOR)
     for bet_data in bets_data:
-        fields = bet_data.split(',')
+        fields = bet_data.split(BET_FIELDS_SEPARATOR)
         bets.append(Bet(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]))
     return bets
 

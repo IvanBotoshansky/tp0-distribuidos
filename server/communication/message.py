@@ -27,9 +27,11 @@ def receive_message(socket, length):
         total_bytes_received += len(bytesReceived)
     return data
 
-def read_message_payload(socket):
-    """Reads the message payload from the socket"""
+def read_message_with_type(socket):
+    """Reads a message with its type from the socket"""
     length_bytes = receive_message(socket, LENGTH_HEADER_SIZE)
     message_length = int.from_bytes(length_bytes, byteorder='big')
-    payload = receive_message(socket, message_length)
-    return payload
+    full_message = receive_message(socket, message_length)
+    message_type = full_message[0]
+    payload = full_message[1:]
+    return message_type, payload

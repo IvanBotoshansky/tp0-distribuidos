@@ -1,8 +1,8 @@
 import socket
 import logging
 
-from communication.message import read_message_payload, ConfirmationMessage, send_message
-from communication.serialization import deserialize_bets, serialize_confirmation
+from communication.message import read_message_with_type, ConfirmationMessage, send_message
+from communication.serialization import deserialize_bets, serialize_confirmation, MESSAGE_TYPE_BET_BATCH
 from common.utils import store_bets
 
 SERVER_SOCKET_TIMEOUT = 1.0
@@ -54,6 +54,18 @@ class Server:
             self._server_socket = None
         logging.info("action: close_connection | result: success")
 
+    def __handle_bet_batch(self, client_sock, serialized_payload):
+        bets = deserialize_bets(serialized_payload)
+        if are_valid_bets(bets):
+            store_bets(bets)
+            logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bets)}")
+            confirmation_msg = ConfirmationMessage("success")
+        else:
+            logging.error(f"action: apuesta_recibida | result: fail | cantidad: {len(bets)}")
+            confirmation_msg = ConfirmationMessage("fail")
+        serialized_confirmation_msg = serialize_confirmation(confirmation_msg)
+        send_message(client_sock, serialized_confirmation_msg)
+
     def __handle_client_connection(self, client_sock):
         """
         Read message from a specific client socket and closes the socket
@@ -62,20 +74,13 @@ class Server:
         client socket will also be closed
         """
         try:
-            serialized_payload = read_message_payload(client_sock)
+            message_type, serialized_payload = read_message_with_type(client_sock)
             addr = client_sock.getpeername()
             logging.info(f'action: receive_message | result: success | ip: {addr[0]}')
 
-            bets = deserialize_bets(serialized_payload)
-            if are_valid_bets(bets):
-                store_bets(bets)
-                logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bets)}")
-                confirmation_msg = ConfirmationMessage("success")
-            else:
-                logging.error(f"action: apuesta_recibida | result: fail | cantidad: {len(bets)}")
-                confirmation_msg = ConfirmationMessage("fail")
-            serialized_confirmation_msg = serialize_confirmation(confirmation_msg)
-            send_message(client_sock, serialized_confirmation_msg)
+            if message_type == MESSAGE_TYPE_BET_BATCH:
+                self.__handle_bet_batch(client_sock, serialized_payload)
+                
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
         except Exception as e:

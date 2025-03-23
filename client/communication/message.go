@@ -10,7 +10,7 @@ import (
 const LengthHeaderSize = 4
 const MaxNameLength = 50
 
-// BetMessage represents the message sent by the client
+// BetMessage represents the message sent by the client to register a bet
 type BetMessage struct {
     Agency    string
     FirstName string
@@ -20,7 +20,7 @@ type BetMessage struct {
     Number    string
 }
 
-// ConfirmationMessage represents the message received by the client
+// ConfirmationMessage represents the confirmation message received by the client
 type ConfirmationMessage struct {
     Status string
 }
