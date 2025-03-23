@@ -64,8 +64,8 @@ func (c *Client) createClientSocket() error {
 // Shutdown Gracefully shutdown the client
 func (c *Client) Shutdown() {
 	log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v", c.config.ID)
-	close(c.done)
 	c.closeConnection()
+	close(c.done)
 	log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
 }
 
