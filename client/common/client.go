@@ -14,6 +14,7 @@ import (
 )
 
 const ReadTimeout = 1 * time.Second
+const RetryRequestTime = 5 * time.Second
 
 var log = logging.MustGetLogger("log")
 
@@ -80,11 +81,13 @@ func (c *Client) CloseConnection() {
 
 // ReceiveConfirmation Receives the confirmation message
 func (c *Client) ReceiveConfirmation() (communication.ConfirmationMessage, error) {
-	serializedPayload, err := communication.ReadMessagePayload(c.conn)
+	messageType, serializedPayload, err := communication.ReceiveMessage(c.conn)
 	if err != nil {
 		return communication.ConfirmationMessage{}, err
 	}
-	
+	if messageType != communication.MessageTypeConfirmation {
+		return communication.ConfirmationMessage{}, fmt.Errorf("mensaje inesperado")
+	}
 	return communication.DeserializeConfirmation(serializedPayload), nil
 }
 
@@ -173,6 +176,19 @@ func (c *Client) SendEndNotification() error {
 	return nil
 }
 
+// SendWinnersRequest serializes and sends a winners request message
+func (c *Client) SendWinnersRequest() error {
+	winnersRequest := communication.NewWinnersRequestMessage(c.config.ID)
+	serializedWinnersRequest, err := communication.SerializeWinnersRequest(winnersRequest)
+	if err != nil {
+		return err
+	}
+	if err := communication.SendMessage(c.conn, serializedWinnersRequest); err != nil {
+		return err
+	}
+	return nil
+}
+
 // StartClientLoop Runs the client
 func (c *Client) StartClientLoop() {
 	batches, err := c.ReadBetsInBatches()
@@ -229,6 +245,40 @@ func (c *Client) StartClientLoop() {
 			c.config.ID, err)
 		c.CloseConnection()
 		return
+	}
+	c.conn.Close()
+
+	for {
+		if c.createClientSocket() != nil {
+			c.CloseConnection()
+			return
+		}
+		if err := c.SendWinnersRequest(); err != nil {
+			log.Errorf("action: send_winners_request | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			c.CloseConnection()
+			return
+		}
+
+		messageType, serializedPayload, err := communication.ReceiveMessage(c.conn)
+		if err != nil {
+			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			c.CloseConnection()
+			return
+		}
+		if messageType == communication.MessageTypeWinnersList {
+			winnersList := communication.DeserializeWinnersList(serializedPayload)
+			log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(winnersList.Winners))
+			break
+		}
+
+		c.conn.Close()
+		select {
+		case <-c.done:
+			return
+		case <-time.After(RetryRequestTime):
+		}
 	}
 
 	c.CloseConnection()

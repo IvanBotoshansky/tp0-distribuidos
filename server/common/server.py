@@ -1,15 +1,16 @@
 import socket
 import logging
 
-from communication.message import read_message_with_type, ConfirmationMessage, send_message
+from communication.message import receive_message, ConfirmationMessage, send_message
 from communication.serialization import (
     deserialize_bets,
     deserialize_end_notification,
+    deserialize_winners_request,
     serialize_confirmation,
-    MESSAGE_TYPE_BET_BATCH,
-    MESSAGE_TYPE_END_NOTIFICATION
+    serialize_winners_list,
+    MessageType
 )
-from common.utils import store_bets
+from common.utils import store_bets, load_bets, has_won
 
 SERVER_SOCKET_TIMEOUT = 1.0
 MAX_NAME_LENGTH = 50
@@ -32,6 +33,7 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._running = True
         self._agencies_ended = set()
+        self._draw_done = False
 
     def shutdown(self):
         """Gracefully shutdown the server"""
@@ -81,7 +83,20 @@ class Server:
         self._agencies_ended.add(agency)
 
         if len(self._agencies_ended) == N_AGENCIES:
+            self._draw_done = True
             logging.info("action: sorteo | result: success")
+    
+    def __handle_winners_request(self, client_sock, serialized_payload):
+        """Handles a winners request"""
+        agency = deserialize_winners_request(serialized_payload)
+        if self._draw_done:
+            dnis = []
+            for bet in load_bets():
+                if bet.agency == agency and has_won(bet):
+                    dnis.append(bet.document)
+            send_message(client_sock, serialize_winners_list(dnis))
+        else:
+            send_message(client_sock, serialize_confirmation(ConfirmationMessage("fail")))
 
     def __handle_client_connection(self, client_sock):
         """
@@ -91,14 +106,16 @@ class Server:
         client socket will also be closed
         """
         try:
-            message_type, serialized_payload = read_message_with_type(client_sock)
+            message_type, serialized_payload = receive_message(client_sock)
             addr = client_sock.getpeername()
             logging.info(f'action: receive_message | result: success | ip: {addr[0]}')
 
-            if message_type == MESSAGE_TYPE_BET_BATCH:
+            if message_type == MessageType.BET_BATCH:
                 self.__handle_bet_batch(client_sock, serialized_payload)
-            elif message_type == MESSAGE_TYPE_END_NOTIFICATION:
+            elif message_type == MessageType.END_NOTIFICATION:
                 self.__handle_end_notification(client_sock, serialized_payload)
+            elif message_type == MessageType.WINNERS_REQUEST:
+                self.__handle_winners_request(client_sock, serialized_payload)
 
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")

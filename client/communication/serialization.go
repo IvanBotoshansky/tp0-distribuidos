@@ -9,11 +9,15 @@ import (
 const (
     BetFieldsSeparator = ","
     BetsSeparator = ";"
+    WinnersSeparator = ","
 )
 
 const (
     MessageTypeBetBatch        byte = 1
     MessageTypeEndNotification byte = 2
+    MessageTypeWinnersRequest  byte = 3
+    MessageTypeConfirmation    byte = 11
+    MessageTypeWinnersList     byte = 12
 )
 
 // SerializeWithType serializes data with a message type
@@ -57,7 +61,22 @@ func SerializeEndNotification(endNotification EndNotificationMessage) ([]byte, e
     return SerializeWithType(MessageTypeEndNotification, endNotification.Agency)
 }
 
+// SerializeWinnersRequest serializes a winners request message
+func SerializeWinnersRequest(winnersRequest WinnersRequestMessage) ([]byte, error) {
+    return SerializeWithType(MessageTypeWinnersRequest, winnersRequest.Agency)
+}
+
 // DeserializeConfirmation deserializes data bytes of a confirmation message
 func DeserializeConfirmation(dataBytes []byte) ConfirmationMessage {
 	return NewConfirmationMessage(string(dataBytes))
+}
+
+// DeserializeWinnersList deserializes data bytes of a winners list message
+func DeserializeWinnersList(dataBytes []byte) WinnersListMessage {
+    winners_str := string(dataBytes)
+    if winners_str == "" {
+        return NewWinnersListMessage([]string{})
+    }
+    winners := strings.Split(string(dataBytes), WinnersSeparator)
+    return NewWinnersListMessage(winners)
 }
