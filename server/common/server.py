@@ -14,7 +14,6 @@ from common.utils import store_bets, load_bets, has_won
 
 SERVER_SOCKET_TIMEOUT = 1.0
 MAX_NAME_LENGTH = 50
-N_AGENCIES = 5
 
 def are_valid_bets(bets):
     """Verify if the bets are valid"""
@@ -26,11 +25,12 @@ def are_valid_bets(bets):
     return True
 
 class Server:
-    def __init__(self, port, listen_backlog):
+    def __init__(self, port, listen_backlog, n_agencies):
         # Initialize server socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self._n_agencies = n_agencies
         self._running = True
         self._agencies_ended = set()
         self._draw_done = False
@@ -82,7 +82,7 @@ class Server:
         agency = deserialize_end_notification(serialized_payload)
         self._agencies_ended.add(agency)
 
-        if len(self._agencies_ended) == N_AGENCIES:
+        if len(self._agencies_ended) == self._n_agencies:
             self._draw_done = True
             logging.info("action: sorteo | result: success")
     

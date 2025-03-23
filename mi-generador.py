@@ -4,7 +4,7 @@ def generate_compose(output_file, num_clients):
     """Genera un archivo docker-compose con un servidor y un número específico de clientes."""
     
     with open(output_file, 'w') as f:
-        f.write("""name: tp0
+        f.write(f"""name: tp0
 services:
   server:
     container_name: server
@@ -12,6 +12,7 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
+      - N_AGENCIES={num_clients}
     volumes:
       - ./server/config.ini:/config.ini
     networks:
