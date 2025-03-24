@@ -24,9 +24,9 @@ def serialize_confirmation(confirmation_message):
     """Serializes the confirmation message"""
     return serialize_with_type(MessageType.CONFIRMATION, confirmation_message.status)
 
-def serialize_winners_list(winners):
+def serialize_winners_list(winners_list_message):
     """Serializes the winners list"""
-    return serialize_with_type(MessageType.WINNERS_LIST, Separator.WINNERS.join(winners))
+    return serialize_with_type(MessageType.WINNERS_LIST, Separator.WINNERS.join(winners_list_message.winners))
 
 def deserialize_bets(data):
     """Deserializes the data into a list of bets"""

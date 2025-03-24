@@ -5,6 +5,11 @@ class ConfirmationMessage:
         """Creates a new ConfirmationMessage instance"""
         self.status = status
 
+class WinnersListMessage:
+    def __init__(self, winners):
+        """Creates a new WinnersListMessage instance"""
+        self.winners = winners
+
 def send_message(socket, data):
     """Sends a message through the socket"""
     total_bytes_sent = 0

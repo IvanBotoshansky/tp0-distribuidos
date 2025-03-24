@@ -1,7 +1,7 @@
 import socket
 import logging
 
-from communication.message import receive_message, ConfirmationMessage, send_message
+from communication.message import receive_message, ConfirmationMessage, WinnersListMessage, send_message
 from communication.serialization import (
     deserialize_bets,
     deserialize_end_notification,
@@ -94,7 +94,7 @@ class Server:
             for bet in load_bets():
                 if bet.agency == agency and has_won(bet):
                     dnis.append(bet.document)
-            send_message(client_sock, serialize_winners_list(dnis))
+            send_message(client_sock, serialize_winners_list(WinnersListMessage(dnis)))
         else:
             send_message(client_sock, serialize_confirmation(ConfirmationMessage("fail")))
 
