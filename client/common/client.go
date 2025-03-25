@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 	"strings"
+	"sync"
 
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/communication"
 
@@ -32,6 +33,7 @@ type Client struct {
 	config ClientConfig
 	conn   net.Conn
 	done   chan struct{}
+	connMutex sync.Mutex
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -70,20 +72,14 @@ func (c *Client) Shutdown() {
 }
 
 // closeConnection Closes the client connection
-func (c *Client) closeConnection(verbose ...bool) {
-	isVerbose := true
-	if len(verbose) > 0 {
-		isVerbose = verbose[0]
-	}
+func (c *Client) closeConnection() {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
 	if c.conn != nil {
-		if isVerbose {
-			log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
-		}
+		log.Infof("action: close_connection | result: in_progress | client_id: %s", c.config.ID)
 		c.conn.Close()
 		c.conn = nil
-		if isVerbose {
-			log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
-		}
+		log.Infof("action: close_connection | result: success | client_id: %s", c.config.ID)
 	}
 }
 
@@ -202,10 +198,6 @@ func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
 	amountBatches := len(batches)
 
 	for i, batch := range batches {
-		if c.createClientSocket() != nil {
-			return false
-		}
-
 		if err := c.sendBatch(batch); err != nil {
 			log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
@@ -220,7 +212,6 @@ func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
 		}
 
 		c.handleConfirmation(confirmationMessage)
-		c.closeConnection(false)
 
 		if i == amountBatches - 1 {
 			break
@@ -237,25 +228,17 @@ func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
 
 // notifyEndOfBets Notifies the end of bets sending
 func (c *Client) notifyEndOfBets() bool {
-	if c.createClientSocket() != nil {
-		return false
-	}
-
 	if err := c.sendEndNotification(); err != nil {
 		log.Errorf("action: send_end_notification | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
 		return false
 	}
-	c.closeConnection(false)
 	return true
 }
 
 // askForWinners Asks for winners
 func (c *Client) askForWinners() bool {
 	for {
-		if c.createClientSocket() != nil {
-			return false
-		}
 		if err := c.sendWinnersRequest(); err != nil {
 			log.Errorf("action: send_winners_request | result: fail | client_id: %v | error: %v",
 				c.config.ID, err)
@@ -274,7 +257,6 @@ func (c *Client) askForWinners() bool {
 			break
 		}
 
-		c.closeConnection(false)
 		select {
 		case <-c.done:
 			return false
@@ -282,7 +264,6 @@ func (c *Client) askForWinners() bool {
 		}
 	}
 
-	c.closeConnection()
 	return true
 }
 
@@ -295,18 +276,23 @@ func (c *Client) StartClientLoop() {
 		return
 	}
 
+	if err := c.createClientSocket(); err != nil {
+		log.Errorf("action: initial_connection | result: fail | client_id: %v | error: %v",
+            c.config.ID, err)
+		return
+	}
+
+	defer c.closeConnection()
+
 	if !c.sendAllBatches(batches) {
-		c.closeConnection()
 		return
 	}
 
 	if !c.notifyEndOfBets() {
-		c.closeConnection()
 		return
 	}
 
 	if !c.askForWinners() {
-		c.closeConnection()
 		return
 	}
 }

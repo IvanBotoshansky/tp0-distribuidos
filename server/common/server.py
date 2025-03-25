@@ -12,6 +12,8 @@ from communication.serialization import (
 )
 from common.utils import store_bets, load_bets, has_won
 
+from multiprocessing import Process, Manager, Event
+
 SERVER_SOCKET_TIMEOUT = 1.0
 MAX_NAME_LENGTH = 50
 
@@ -32,12 +34,22 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._n_agencies = n_agencies
         self._running = True
-        self._agencies_ended = set()
-        self._draw_done = False
+        self._active_processes = []
+        manager = Manager()
+        self._bets_lock = manager.Lock()
+        self._agencies_lock = manager.Lock()
+        self._agencies_ended = manager.dict()
+        self._draw_done = Event()
+        self._processes_should_run = manager.Value('b', True)
 
     def shutdown(self):
         """Gracefully shutdown the server"""
         logging.info("action: graceful_shutdown | result: in_progress")
+        self._processes_should_run.value = False
+        for process in self._active_processes:
+            process.join()
+            logging.info("action: process_finished | result: success")
+
         self._running = False
         self.__close_server_socket()
         logging.info("action: graceful_shutdown | result: success")
@@ -54,7 +66,9 @@ class Server:
         while self._running:
             client_sock = self.__accept_new_connection()
             if client_sock and self._running:
-                self.__handle_client_connection(client_sock)
+                client_handler = Process(target=self.__handle_client_connection, args=(client_sock,))
+                client_handler.start()
+                self._active_processes.append(client_handler)
 
     def __close_server_socket(self):
         """Closes the server socket"""
@@ -68,7 +82,8 @@ class Server:
         """Handles a batch of bets"""
         bets = deserialize_bets(serialized_payload)
         if are_valid_bets(bets):
-            store_bets(bets)
+            with self._bets_lock:
+                store_bets(bets)
             logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bets)}")
             confirmation_msg = ConfirmationMessage("success")
         else:
@@ -80,23 +95,32 @@ class Server:
     def __handle_end_notification(self, _client_sock, serialized_payload):
         """Handles an end notification"""
         agency = deserialize_end_notification(serialized_payload)
-        self._agencies_ended.add(agency)
+        with self._agencies_lock:
+            self._agencies_ended[agency] = True
 
-        if len(self._agencies_ended) == self._n_agencies:
-            self._draw_done = True
-            logging.info("action: sorteo | result: success")
+            if len(self._agencies_ended) == self._n_agencies:
+                logging.info("action: sorteo | result: success")
+                self._draw_done.set()
     
     def __handle_winners_request(self, client_sock, serialized_payload):
         """Handles a winners request"""
         agency = deserialize_winners_request(serialized_payload)
-        if self._draw_done:
-            dnis = []
+
+        while not self._draw_done.is_set():
+            if self._draw_done.wait(timeout=SERVER_SOCKET_TIMEOUT):
+                break
+            else:
+                if not self._processes_should_run.value:
+                    logging.info("PROCESO ESTABA ESPERANDO EVENTO Y RECIBIO SHUTDOWN")
+                    return
+
+        dnis = []
+        with self._bets_lock:
             for bet in load_bets():
                 if bet.agency == agency and has_won(bet):
                     dnis.append(bet.document)
-            send_message(client_sock, serialize_winners_list(WinnersListMessage(dnis)))
-        else:
-            send_message(client_sock, serialize_confirmation(ConfirmationMessage("fail")))
+        send_message(client_sock, serialize_winners_list(WinnersListMessage(dnis)))
+        
 
     def __handle_client_connection(self, client_sock):
         """
@@ -105,24 +129,34 @@ class Server:
         If a problem arises in the communication with the client, the
         client socket will also be closed
         """
-        try:
-            message_type, serialized_payload = receive_message(client_sock)
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]}')
+        client_sock.settimeout(SERVER_SOCKET_TIMEOUT)
+        while self._processes_should_run.value:
+            try:
+                message_type, serialized_payload = receive_message(client_sock)
+                addr = client_sock.getpeername()
+                logging.info(f'action: receive_message | result: success | ip: {addr[0]}')
 
-            if message_type == MessageType.BET_BATCH:
-                self.__handle_bet_batch(client_sock, serialized_payload)
-            elif message_type == MessageType.END_NOTIFICATION:
-                self.__handle_end_notification(client_sock, serialized_payload)
-            elif message_type == MessageType.WINNERS_REQUEST:
-                self.__handle_winners_request(client_sock, serialized_payload)
+                if message_type == MessageType.BET_BATCH:
+                    self.__handle_bet_batch(client_sock, serialized_payload)
+                elif message_type == MessageType.END_NOTIFICATION:
+                    self.__handle_end_notification(client_sock, serialized_payload)
+                elif message_type == MessageType.WINNERS_REQUEST:
+                    self.__handle_winners_request(client_sock, serialized_payload)
 
-        except OSError as e:
-            logging.error(f"action: receive_message | result: fail | error: {e}")
-        except Exception as e:
-            logging.error(f"action: unexpected_error | result: fail | error: {e}")
-        finally:
-            client_sock.close()
+            except socket.timeout:
+                continue
+            except ConnectionError as e:
+                logging.info("client_disconnected")
+                break
+            except OSError as e:
+                logging.error(f"action: receive_message | result: fail | error: {e}")
+                break
+            except Exception as e:
+                logging.error(f"action: unexpected_error | result: fail | error: {e}")
+                break
+        logging.info("action: close_connection_with_client | result: in_progress") 
+        client_sock.close()
+        logging.info("action: close_connection_with_client | result: success")
 
     def __accept_new_connection(self):
         """
