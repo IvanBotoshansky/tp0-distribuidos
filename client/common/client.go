@@ -29,7 +29,6 @@ type ClientConfig struct {
 type Client struct {
 	config ClientConfig
 	conn   net.Conn
-	done   chan struct{}
 	connMutex sync.Mutex
 }
 
@@ -38,7 +37,6 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
-		done: make(chan struct{}),
 	}
 	return client
 }
@@ -64,7 +62,6 @@ func (c *Client) createClientSocket() error {
 func (c *Client) Shutdown() {
 	log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v", c.config.ID)
 	c.closeConnection()
-	close(c.done)
 	log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
 }
 
