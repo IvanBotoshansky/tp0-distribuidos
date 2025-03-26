@@ -213,12 +213,6 @@ func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
 		if i == amountBatches - 1 {
 			break
 		}
-		
-		select {
-		case <-c.done:
-			return false
-		case <-time.After(c.config.LoopPeriod):
-		}
 	}
 	return true
 }
