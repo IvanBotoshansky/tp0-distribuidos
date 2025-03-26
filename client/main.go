@@ -15,6 +15,8 @@ import (
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common"
 )
 
+const END_SLEEP_DURATION = 1 * time.Second
+
 var log = logging.MustGetLogger("log")
 
 // InitConfig Function that uses viper library to parse configuration parameters.
@@ -138,4 +140,6 @@ func main() {
 			<-shutdownCompleted
 		default:
 	}
+
+	time.Sleep(END_SLEEP_DURATION)
 }

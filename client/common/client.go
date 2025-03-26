@@ -13,8 +13,6 @@ import (
 	"github.com/op/go-logging"
 )
 
-const ReadTimeout = 1 * time.Second
-
 var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
@@ -192,12 +190,6 @@ func (c *Client) StartClientLoop() {
 
 		if i == amountBatches - 1 {
 			break
-		}
-		
-		select {
-		case <-c.done:
-			return
-		case <-time.After(c.config.LoopPeriod):
 		}
 	}
 }
