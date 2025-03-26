@@ -13,7 +13,6 @@ import (
 	"github.com/op/go-logging"
 )
 
-const ReadTimeout = 1 * time.Second
 const RetryRequestTime = 5 * time.Second
 
 var log = logging.MustGetLogger("log")
@@ -224,12 +223,6 @@ func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
 
 		if i == amountBatches - 1 {
 			break
-		}
-		
-		select {
-		case <-c.done:
-			return false
-		case <-time.After(c.config.LoopPeriod):
 		}
 	}
 	return true
