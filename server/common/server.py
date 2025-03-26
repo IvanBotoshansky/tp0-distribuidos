@@ -111,7 +111,7 @@ class Server:
                 break
             else:
                 if not self._processes_should_run.value:
-                    logging.info("PROCESO ESTABA ESPERANDO EVENTO Y RECIBIO SHUTDOWN")
+                    logging.info("action: process_received_shutdown_while_waiting_for_draw | result: success")
                     return
 
         dnis = []
@@ -146,7 +146,7 @@ class Server:
             except socket.timeout:
                 continue
             except ConnectionError as e:
-                logging.info("client_disconnected")
+                logging.info(f"action: client_disconnected | result: success | ip: {addr[0]}")
                 break
             except OSError as e:
                 logging.error(f"action: receive_message | result: fail | error: {e}")

@@ -14,9 +14,6 @@ import (
 	"github.com/op/go-logging"
 )
 
-const ReadTimeout = 1 * time.Second
-const RetryRequestTime = 5 * time.Second
-
 var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
@@ -238,30 +235,24 @@ func (c *Client) notifyEndOfBets() bool {
 
 // askForWinners Asks for winners
 func (c *Client) askForWinners() bool {
-	for {
-		if err := c.sendWinnersRequest(); err != nil {
-			log.Errorf("action: send_winners_request | result: fail | client_id: %v | error: %v",
-				c.config.ID, err)
-			return false
-		}
+	if err := c.sendWinnersRequest(); err != nil {
+		log.Errorf("action: send_winners_request | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return false
+	}
 
-		messageType, serializedPayload, err := communication.ReceiveMessage(c.conn)
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID, err)
-			return false
-		}
-		if messageType == communication.MessageTypeWinnersList {
-			winnersList := communication.DeserializeWinnersList(serializedPayload)
-			log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(winnersList.Winners))
-			break
-		}
-
-		select {
-		case <-c.done:
-			return false
-		case <-time.After(RetryRequestTime):
-		}
+	messageType, serializedPayload, err := communication.ReceiveMessage(c.conn)
+	if err != nil {
+		log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return false
+	}
+	if messageType == communication.MessageTypeWinnersList {
+		winnersList := communication.DeserializeWinnersList(serializedPayload)
+		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(winnersList.Winners))
+	} else {
+		log.Errorf("action: consulta_ganadores | result: fail")
+		return false
 	}
 
 	return true
