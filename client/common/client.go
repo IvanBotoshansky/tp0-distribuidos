@@ -98,16 +98,15 @@ func (c *Client) handleConfirmation(confirmationMessage communication.Confirmati
 	}
 }
 
-// readBetsInBatches Reads bets from CSV file in batches
-func (c *Client) readBetsInBatches() ([][]communication.BetMessage, error) {
+// sendAllBatches Reads bets from CSV file in batches and sends them
+func (c *Client) sendAllBatches() bool {
     filePath := fmt.Sprintf("/.data/agency-%s.csv", c.config.ID)
     file, err := os.Open(filePath)
     if err != nil {
-        return nil, fmt.Errorf("error al abrir archivo CSV: %v", err)
+        return false
     }
     defer file.Close()
     
-    var batches [][]communication.BetMessage
     currentBatch := []communication.BetMessage{}
     
     scanner := bufio.NewScanner(file)
@@ -116,7 +115,7 @@ func (c *Client) readBetsInBatches() ([][]communication.BetMessage, error) {
         fields := strings.Split(line, ",")
         
         if len(fields) != 5 {
-            return nil, fmt.Errorf("la apuesta debe tener 5 campos")
+			return false
         }
 
         bet, err := communication.NewBetMessage(
@@ -128,25 +127,29 @@ func (c *Client) readBetsInBatches() ([][]communication.BetMessage, error) {
 			fields[4],
 		)
 		if err != nil {
-			return nil, err
+			return false
 		}
         
         if len(currentBatch) == c.config.BatchMaxAmount {
-            batches = append(batches, currentBatch)
+			if !c.sendBatchAndReceiveConfirmation(currentBatch) {
+				return false
+			}
             currentBatch = []communication.BetMessage{}
         }
         currentBatch = append(currentBatch, bet)
     }
     
     if err := scanner.Err(); err != nil {
-        return nil, fmt.Errorf("error al leer archivo: %v", err)
+		return false
     }
     
     if len(currentBatch) > 0 {
-        batches = append(batches, currentBatch)
+		if !c.sendBatchAndReceiveConfirmation(currentBatch) {
+			return false
+		}
     }
     
-    return batches, nil
+	return true
 }
 
 // sendBatch serializes and sends a batch of bets
@@ -187,30 +190,23 @@ func (c *Client) sendWinnersRequest() error {
 	return nil
 }
 
-// sendAllBatches Sends all batches of bets
-func (c *Client) sendAllBatches(batches [][]communication.BetMessage) bool {
-	amountBatches := len(batches)
-
-	for i, batch := range batches {
-		if err := c.sendBatch(batch); err != nil {
-			log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
-			return false
-		}
-
-		confirmationMessage, err := c.receiveConfirmation()
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID, err)
-			return false
-		}
-
-		c.handleConfirmation(confirmationMessage)
-
-		if i == amountBatches - 1 {
-			break
-		}
+// sendBatchAndReceiveConfirmation Sends a batch and receives its confirmation
+func (c *Client) sendBatchAndReceiveConfirmation(batch []communication.BetMessage) bool {
+	if err := c.sendBatch(batch); err != nil {
+		log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
+		c.config.ID, err)
+		return false
 	}
+
+	confirmationMessage, err := c.receiveConfirmation()
+	if err != nil {
+		log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return false
+	}
+
+	c.handleConfirmation(confirmationMessage)
+
 	return true
 }
 
@@ -251,13 +247,6 @@ func (c *Client) askForWinners() bool {
 
 // StartClientLoop Runs the client
 func (c *Client) StartClientLoop() {
-	batches, err := c.readBetsInBatches()
-	if err != nil {
-		log.Errorf("action: read_bets | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
-		return
-	}
-
 	if err := c.createClientSocket(); err != nil {
 		log.Errorf("action: initial_connection | result: fail | client_id: %v | error: %v",
             c.config.ID, err)
@@ -266,7 +255,7 @@ func (c *Client) StartClientLoop() {
 
 	defer c.closeConnection()
 
-	if !c.sendAllBatches(batches) {
+	if !c.sendAllBatches() {
 		return
 	}
 
